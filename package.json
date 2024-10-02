@@ -1,0 +1,41 @@
+{
+  "name": "forrest-upload-artifact",
+  "description": "Upload artifacts to the local Forrest runner",
+  "version": "0.0.0",
+  "author": "Leonard Göhrs",
+  "private": true,
+  "type": "module",
+  "homepage": "https://github.com/forrest-runner/upload-artifact",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/forrest-runner/upload-artifact.git"
+  },
+  "bugs": {
+    "url": "https://github.com/forrest-runner/upload-artifact/issues"
+  },
+  "keywords": [
+    "actions",
+    "node",
+    "setup"
+  ],
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "scripts": {
+    "format:write": "npx prettier --write .",
+    "format:check": "npx prettier --check .",
+    "lint": "npx oxlint -c oxlintrc.json",
+    "package": "npx ncc build src/index.js -o dist --source-map --license licenses.txt"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@actions/core": "^1.11.1",
+    "@actions/glob": "^0.5.0",
+    "@actions/http-client": "^2.2.3"
+  },
+  "devDependencies": {
+    "@vercel/ncc": "^0.38.3",
+    "oxlint": "^0.15.6",
+    "prettier": "^3.4.2"
+  }
+}

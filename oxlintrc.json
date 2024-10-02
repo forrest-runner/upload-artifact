@@ -1,0 +1,22 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "categories": {
+    "correctness": "error",
+    "pedantic": "error",
+    "perf": "error",
+    "restriction": "error",
+    "style": "error",
+    "suspicious": "error",
+    "nursery": "warn"
+  },
+  "env": {
+    "node": true
+  },
+  "rules": {
+    "no-async-await": "allow",
+    "no-await-in-loop": "allow",
+    "no-magic-numbers": "allow",
+    "no-undefined": "allow",
+    "yoda": "allow"
+  }
+}

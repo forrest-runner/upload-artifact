@@ -1,23 +1,36 @@
-name: 'The name of your action here'
-description: 'Provide a description here'
-author: 'Your name or organization here'
+name: 'Forrest Artifact Upload'
+description: 'Upload artifacts to the local Forrest runner'
+author: 'Leonard Göhrs'
 
-# Add your action's branding here. This will appear on the GitHub Marketplace.
 branding:
-  icon: 'heart'
-  color: 'red'
+  icon: 'upload'
+  color: 'green'
 
-# Define your inputs here.
 inputs:
-  milliseconds:
-    description: 'Your input description here'
-    required: true
-    default: '1000'
+  name:
+    description: 'Upload destination as configured in the Forrest runner'
+    default: 'artifact'
 
-# Define your outputs here.
+  path:
+    description:
+      'A file, directory or wildcard pattern that describes what to upload'
+    required: true
+
+  include-hidden-files:
+    description: >
+      If true, hidden files will be included in the artifact. If false, hidden
+      files will be excluded from the artifact.
+    default: 'false'
+
+  token:
+    description: 'The token used to authenticate this upload'
+    default: ''
+
 outputs:
-  time:
-    description: 'Your output description here'
+  artifact-url:
+    description: >
+      The URL prefix under which the artifacts were just uploaded. To retrieve a
+      specific file the respective file name as to be appended.
 
 runs:
   using: node20

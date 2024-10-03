@@ -1,0 +1,22 @@
+name: Run
+
+on: [pull_request, push]
+
+jobs:
+  run-action:
+    name: Run the action
+    runs-on: [self-hosted, forrest, test-debian]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Upload files and replace with .desktop
+        uses: ./
+        with:
+          path: src
+
+      - name: Upload .desktop files as GitHub artifact
+        uses: actions/upload-artifact@v4
+        with:
+          path: src

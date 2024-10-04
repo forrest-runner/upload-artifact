@@ -28186,14 +28186,12 @@ var __importStar = (this && this.__importStar) || function (mod) {
     return result;
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.getInputs = getInputs;
 exports.run = run;
 const node_path_1 = __nccwpck_require__(6760);
 const promises_1 = __nccwpck_require__(1455);
 const core = __importStar(__nccwpck_require__(7484));
 const http_client_1 = __nccwpck_require__(4844);
 const search_1 = __nccwpck_require__(8019);
-const FORREST_HOST = 'http://10.0.2.4';
 function getInputs() {
     const name = core.getInput('name') || 'artifact';
     const path = core.getInput('path', { required: true });
@@ -28206,42 +28204,61 @@ function getInputs() {
         authToken: authToken
     };
 }
+function getApiUrl() {
+    const url = process.env.FORREST_API_URL;
+    if (url === undefined || url === '') {
+        throw new Error('The FORREST_API_URL environment variable is not set');
+    }
+    return url;
+}
+async function getRunToken() {
+    const path = process.env.FORREST_RUN_TOKEN_FILE;
+    if (path === undefined || path === '') {
+        throw new Error('The FORREST_RUN_TOKEN_FILE environment variable is not set');
+    }
+    const runToken = await (0, promises_1.readFile)(path, { encoding: 'utf-8' });
+    return runToken.trim();
+}
 async function run() {
     const inputs = getInputs();
     const searchResult = await (0, search_1.findFilesToUpload)(inputs.searchPath, inputs.includeHiddenFiles);
-    let headers = undefined;
+    const apiUrl = getApiUrl();
+    const runToken = await getRunToken();
+    let authorization = 'Bearer ' + runToken;
     if (inputs.authToken !== '') {
-        const bearer = `Bearer ${inputs.authToken}`;
-        headers = { authorization: bearer };
+        authorization += ' ' + inputs.authToken;
     }
     const http = new http_client_1.HttpClient('forrest-upload-artifact/0.1', [], {
         keepAlive: true,
-        headers: headers
+        headers: { authorization }
     });
     const name = inputs.artifactName;
     const root = searchResult.rootDirectory;
+    let publicBaseUrl = undefined;
     for (const path of searchResult.filesToUpload) {
         const relativePath = (0, node_path_1.relative)(root, path);
-        const dstUrl = `${FORREST_HOST}/upload/${name}/${relativePath}`;
-        core.info(`Uploading ${relativePath}`);
+        const dstUrl = `${apiUrl}/artifact/${name}/${relativePath}`;
+        core.debug(`Uploading ${relativePath}`);
         core.debug(`  - Destination: ${dstUrl}`);
         const fd = await (0, promises_1.open)(path);
         const stream = fd.createReadStream();
         const resp = await http.sendStream('PUT', dstUrl, stream);
         const status = resp.message.statusCode;
         const message = resp.message.statusMessage;
+        const body = await resp.readBody();
         const sm = `${status} ${message}`;
         core.debug(`  - Status: "${sm}"`);
         if (status != 201) {
-            core.setFailed(`Server did not respond with "201 Created" but "${sm}"`);
-            return;
+            core.debug(`  - Body: "${body}"`);
+            throw new Error(`Server did not respond with "201 Created" but "${sm}"`);
         }
         const publicUrl = resp.message.headers['content-location'];
         core.debug(`  - Public URL: "${publicUrl}"`);
         if (publicUrl === undefined) {
-            core.setFailed('Server did not provide a public URL in response');
-            return;
+            throw new Error('Server did not provide a public URL in response');
         }
+        core.info(`Artifact download URL: ${publicUrl}`);
+        publicBaseUrl = publicUrl.slice(0, publicUrl.length - relativePath.length);
         const desktopFilePath = path + `.desktop`;
         const desktopFileContent = `[Desktop Entry]\nType=Link\nURL=${publicUrl}`;
         await (0, promises_1.writeFile)(desktopFilePath, desktopFileContent);
@@ -28249,6 +28266,9 @@ async function run() {
         await (0, promises_1.rm)(path);
         core.debug(`  - Removed: "${path}"`);
     }
+    core.info(`Artifact base URL: ${publicBaseUrl}`);
+    core.setOutput('artifact-url', publicBaseUrl);
+    http.dispose();
 }
 
 

@@ -1,20 +1,18 @@
 import { relative } from 'node:path'
-import { open, rm, writeFile } from 'node:fs/promises'
+import { open, readFile, rm, writeFile } from 'node:fs/promises'
 
 import * as core from '@actions/core'
 import { HttpClient } from '@actions/http-client'
 import { findFilesToUpload } from './search'
 
-const FORREST_HOST = 'http://10.0.2.4'
-
-export interface UploadInputs {
+interface UploadInputs {
   artifactName: string
   searchPath: string
   includeHiddenFiles: boolean
   authToken: string
 }
 
-export function getInputs(): UploadInputs {
+function getInputs(): UploadInputs {
   const name = core.getInput('name') || 'artifact'
   const path = core.getInput('path', { required: true })
   const includeHiddenFiles = core.getBooleanInput('include-hidden-files')
@@ -28,6 +26,30 @@ export function getInputs(): UploadInputs {
   }
 }
 
+function getApiUrl(): string {
+  const url = process.env.FORREST_API_URL
+
+  if (url === undefined || url === '') {
+    throw new Error('The FORREST_API_URL environment variable is not set')
+  }
+
+  return url
+}
+
+async function getRunToken(): Promise<string> {
+  const path = process.env.FORREST_RUN_TOKEN_FILE
+
+  if (path === undefined || path === '') {
+    throw new Error(
+      'The FORREST_RUN_TOKEN_FILE environment variable is not set'
+    )
+  }
+
+  const runToken = await readFile(path, { encoding: 'utf-8' })
+
+  return runToken.trim()
+}
+
 export async function run(): Promise<void> {
   const inputs = getInputs()
   const searchResult = await findFilesToUpload(
@@ -35,26 +57,30 @@ export async function run(): Promise<void> {
     inputs.includeHiddenFiles
   )
 
-  let headers = undefined
+  const apiUrl = getApiUrl()
+  const runToken = await getRunToken()
+
+  let authorization = 'Bearer ' + runToken
 
   if (inputs.authToken !== '') {
-    const bearer = `Bearer ${inputs.authToken}`
-    headers = { authorization: bearer }
+    authorization += ' ' + inputs.authToken
   }
 
   const http = new HttpClient('forrest-upload-artifact/0.1', [], {
     keepAlive: true,
-    headers: headers
+    headers: { authorization }
   })
 
   const name = inputs.artifactName
   const root = searchResult.rootDirectory
 
+  let publicBaseUrl = undefined
+
   for (const path of searchResult.filesToUpload) {
     const relativePath = relative(root, path)
-    const dstUrl = `${FORREST_HOST}/upload/${name}/${relativePath}`
+    const dstUrl = `${apiUrl}/artifact/${name}/${relativePath}`
 
-    core.info(`Uploading ${relativePath}`)
+    core.debug(`Uploading ${relativePath}`)
     core.debug(`  - Destination: ${dstUrl}`)
 
     const fd = await open(path)
@@ -63,13 +89,15 @@ export async function run(): Promise<void> {
 
     const status = resp.message.statusCode
     const message = resp.message.statusMessage
+    const body = await resp.readBody()
     const sm = `${status} ${message}`
 
     core.debug(`  - Status: "${sm}"`)
 
     if (status != 201) {
-      core.setFailed(`Server did not respond with "201 Created" but "${sm}"`)
-      return
+      core.debug(`  - Body: "${body}"`)
+
+      throw new Error(`Server did not respond with "201 Created" but "${sm}"`)
     }
 
     const publicUrl = resp.message.headers['content-location']
@@ -77,9 +105,12 @@ export async function run(): Promise<void> {
     core.debug(`  - Public URL: "${publicUrl}"`)
 
     if (publicUrl === undefined) {
-      core.setFailed('Server did not provide a public URL in response')
-      return
+      throw new Error('Server did not provide a public URL in response')
     }
+
+    core.info(`Artifact download URL: ${publicUrl}`)
+
+    publicBaseUrl = publicUrl.slice(0, publicUrl.length - relativePath.length)
 
     const desktopFilePath = path + `.desktop`
     const desktopFileContent = `[Desktop Entry]\nType=Link\nURL=${publicUrl}`
@@ -92,4 +123,9 @@ export async function run(): Promise<void> {
 
     core.debug(`  - Removed: "${path}"`)
   }
+
+  core.info(`Artifact base URL: ${publicBaseUrl}`)
+  core.setOutput('artifact-url', publicBaseUrl)
+
+  http.dispose()
 }

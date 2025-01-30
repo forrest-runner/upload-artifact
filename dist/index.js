@@ -28220,6 +28220,16 @@ async function getRunToken() {
     const runToken = await (0, promises_1.readFile)(path, { encoding: 'utf-8' });
     return runToken.trim();
 }
+function getHumanReadableSize(bytes) {
+    const suffixes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+    let current = bytes;
+    let i = 0;
+    while (current >= 1024 && i < suffixes.length - 1) {
+        current /= 1024;
+        i++;
+    }
+    return `${current.toFixed(2)} ${suffixes[i]}`;
+}
 async function run() {
     const inputs = getInputs();
     const searchResult = await (0, search_1.findFilesToUpload)(inputs.searchPath, inputs.includeHiddenFiles);
@@ -28236,11 +28246,20 @@ async function run() {
     const name = inputs.artifactName;
     const root = searchResult.rootDirectory;
     let publicBaseUrl = undefined;
+    const artifactRows = [
+        [
+            { data: 'Artifact Path', header: true },
+            { data: 'Size', header: true },
+            { data: 'Public URL', header: true }
+        ]
+    ];
     for (const path of searchResult.filesToUpload) {
         const relativePath = (0, node_path_1.relative)(root, path);
         const dstUrl = `${apiUrl}/artifact/${name}/${relativePath}`;
         core.debug(`Uploading ${relativePath}`);
         core.debug(`  - Destination: ${dstUrl}`);
+        const st = await (0, promises_1.stat)(path);
+        const humanSize = getHumanReadableSize(st.size);
         const fd = await (0, promises_1.open)(path);
         const stream = fd.createReadStream();
         const resp = await http.sendStream('PUT', dstUrl, stream);
@@ -28266,9 +28285,18 @@ async function run() {
         core.debug(`  - Created: "${desktopFilePath}"`);
         await (0, promises_1.rm)(path);
         core.debug(`  - Removed: "${path}"`);
+        artifactRows.push([
+            relativePath,
+            humanSize,
+            `<a href="${publicUrl}">${publicUrl}</a>`
+        ]);
     }
     core.info(`Artifact base URL: ${publicBaseUrl}`);
     core.setOutput('artifact-url', publicBaseUrl);
+    await core.summary
+        .addHeading('Uploaded Artifacts')
+        .addTable(artifactRows)
+        .write();
     http.dispose();
 }
 

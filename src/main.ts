@@ -1,7 +1,8 @@
 import { relative } from 'node:path'
-import { open, readFile, rm, writeFile } from 'node:fs/promises'
+import { open, readFile, rm, stat, writeFile } from 'node:fs/promises'
 
 import * as core from '@actions/core'
+import { SummaryTableRow } from '@actions/core/lib/summary'
 import { HttpClient } from '@actions/http-client'
 import { findFilesToUpload } from './search'
 
@@ -50,6 +51,19 @@ async function getRunToken(): Promise<string> {
   return runToken.trim()
 }
 
+function getHumanReadableSize(bytes: number): string {
+  const suffixes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB']
+  let current = bytes
+  let i = 0
+
+  while (current >= 1024 && i < suffixes.length - 1) {
+    current /= 1024
+    i++
+  }
+
+  return `${current.toFixed(2)} ${suffixes[i]}`
+}
+
 export async function run(): Promise<void> {
   const inputs = getInputs()
   const searchResult = await findFilesToUpload(
@@ -76,12 +90,23 @@ export async function run(): Promise<void> {
 
   let publicBaseUrl = undefined
 
+  const artifactRows: SummaryTableRow[] = [
+    [
+      { data: 'Artifact Path', header: true },
+      { data: 'Size', header: true },
+      { data: 'Public URL', header: true }
+    ]
+  ]
+
   for (const path of searchResult.filesToUpload) {
     const relativePath = relative(root, path)
     const dstUrl = `${apiUrl}/artifact/${name}/${relativePath}`
 
     core.debug(`Uploading ${relativePath}`)
     core.debug(`  - Destination: ${dstUrl}`)
+
+    const st = await stat(path)
+    const humanSize = getHumanReadableSize(st.size)
 
     const fd = await open(path)
     const stream = fd.createReadStream()
@@ -122,10 +147,21 @@ export async function run(): Promise<void> {
     await rm(path)
 
     core.debug(`  - Removed: "${path}"`)
+
+    artifactRows.push([
+      relativePath,
+      humanSize,
+      `<a href="${publicUrl}">${publicUrl}</a>`
+    ])
   }
 
   core.info(`Artifact base URL: ${publicBaseUrl}`)
   core.setOutput('artifact-url', publicBaseUrl)
+
+  await core.summary
+    .addHeading('Uploaded Artifacts')
+    .addTable(artifactRows)
+    .write()
 
   http.dispose()
 }

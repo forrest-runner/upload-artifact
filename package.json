@@ -21,7 +21,7 @@
     ".": "./dist/index.js"
   },
   "engines": {
-    "node": ">=21"
+    "node": ">=24.0.0"
   },
   "scripts": {
     "all": "npm run format:write && npm run lint && npm run package",
@@ -50,7 +50,7 @@
     "typescript": "^5.6.3",
     "@typescript-eslint/eslint-plugin": "^8.43.0",
     "@typescript-eslint/parser": "^8.32.1",
-    "@types/node": "^22.7.5",
+    "@types/node": "^24.3.1",
     "@vercel/ncc": "^0.38.2"
   }
 }

@@ -4,7 +4,7 @@ import { open, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import * as core from '@actions/core'
 import { SummaryTableRow } from '@actions/core/lib/summary'
 import { HttpClient } from '@actions/http-client'
-import { findFilesToUpload } from './search'
+import { findFilesToUpload } from './search.js'
 
 interface UploadInputs {
   artifactName: string

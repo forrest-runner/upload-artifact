@@ -37,6 +37,14 @@ jobs:
           path: build
 ```
 
+## Inputs
+
+| Input | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `path` | yes | — | A file, directory or wildcard pattern that describes what to upload |
+| `name` | no | `artifact` | Upload destination as configured in the Forrest runner |
+| `token` | no | — | The token used to authenticate this upload |
+
 [forrest_app]: https://github.com/forrest-runner/
 [dot_desktop_spec]:
   https://specifications.freedesktop.org/desktop-entry-spec/latest/

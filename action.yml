@@ -1,37 +1,235 @@
-name: 'Forrest Artifact Upload'
-description: 'Upload artifacts to the local Forrest runner'
-author: 'Leonard Göhrs'
-
+author: Leonard Göhrs
 branding:
-  icon: 'upload'
-  color: 'green'
-
+  color: green
+  icon: upload
+description: Upload artifacts to the local Forrest runner
 inputs:
   name:
-    description: 'Upload destination as configured in the Forrest runner'
-    default: 'artifact'
-
+    default: artifact
+    description: Upload destination as configured in the Forrest runner
   path:
-    description:
-      'A file, directory or wildcard pattern that describes what to upload'
+    description: A file, directory or wildcard pattern that describes what to upload
     required: true
-
-  include-hidden-files:
-    description: >
-      If true, hidden files will be included in the artifact. If false, hidden
-      files will be excluded from the artifact.
-    default: 'false'
-
   token:
-    description: 'The token used to authenticate this upload'
     default: ''
-
+    description: The token used to authenticate this upload
+name: Forrest Artifact Upload
 outputs:
   artifact-url:
     description: >
-      The URL prefix under which the artifacts were just uploaded. To retrieve a
-      specific file the respective file name as to be appended.
-
+      The URL prefix under which the artifacts were just uploaded. To retrieve a specific
+      file the respective file name has to be appended.
+    value: ${{ steps.upload.outputs.artifact-url }}
 runs:
-  using: node24
-  main: dist/index.js
+  steps:
+  - env:
+      FOREST_UPLOAD_NAME: ${{ inputs.name }}
+      FOREST_UPLOAD_PATH: ${{ inputs.path }}
+      FOREST_UPLOAD_TOKEN: ${{ inputs.token }}
+    id: upload
+    name: Upload artifact
+    run: |
+      import glob
+      import os
+      import sys
+      import urllib.error
+      import urllib.request
+      from pathlib import Path
+
+
+      def _info(msg: str) -> None:
+          print(msg)
+
+
+      def _debug(msg: str) -> None:
+          print(f"::debug::{msg}")
+
+
+      def _error(msg: str) -> None:
+          print(f"::error::{msg}")
+          sys.exit(1)
+
+
+      def _human_size(n: int) -> str:
+          suffixes = ("B", "KB", "MB", "GB", "TB", "PB")
+          i = 0
+          while n >= 1024 and i < len(suffixes) - 1:
+              n /= 1024
+              i += 1
+          return f"{n:.2f} {suffixes[i]}"
+
+
+      def _find_files(search_path: str) -> list[str]:
+          pattern = f"{search_path}/**" if Path(search_path).is_dir() else search_path
+          _debug(f"Searching with pattern: {pattern}")
+
+          found: list[str] = sorted(glob.glob(pattern, recursive=True))
+
+          files: list[str] = []
+
+          for filepath in found:
+              p = Path(filepath)
+              if p.is_dir():
+                  _debug(f"Skipping directory: {filepath}")
+                  continue
+              if not p.exists():
+                  _debug(f"Skipping broken symlink: {filepath}")
+                  continue
+              files.append(filepath)
+
+          return files
+
+
+      def _compute_root(search_path: str, files: list[str]) -> str:
+          if not files:
+              return search_path
+          if len(files) == 1 and os.path.normpath(search_path) == os.path.normpath(files[0]):
+              return str(Path(files[0]).parent)
+          if any(ch in search_path for ch in "*?["):
+              # A glob pattern was given: use the longest common ancestor of the
+              # matched files' parent directories as the root so that relative
+              # paths never contain '..' and escape the artifact namespace.
+              return os.path.commonpath([Path(filepath).parent for filepath in files])
+          return search_path
+
+
+      def _upload_file(
+          api_url: str,
+          name: str,
+          filepath: str,
+          root: str,
+          authorization: str,
+      ) -> str:
+          rel_path = os.path.relpath(filepath, root)
+          dst_url = f"{api_url}/artifact/{name}/{rel_path}"
+
+          _debug(f"Uploading {rel_path}")
+          _debug(f"  Destination: {dst_url}")
+
+          with open(filepath, "rb") as fh:
+              req = urllib.request.Request(
+                  dst_url,
+                  data=fh,
+                  method="PUT",
+                  headers={
+                      "Authorization": authorization,
+                      "Content-type": "application/octet-stream",
+                      "Content-length": str(os.fstat(fh.fileno()).st_size),
+                  },
+              )
+              try:
+                  with urllib.request.urlopen(req) as resp:
+                      status = resp.status
+                      body = ""
+                      public_url = resp.headers.get("content-location")
+              except urllib.error.HTTPError as exc:
+                  body = exc.read().decode("utf-8", "replace")
+                  _debug(f"  Status: {exc.code} {exc.reason}")
+                  _debug(f"  Body: {body}")
+                  _error(f"Server did not respond with 201 Created but {exc.code} {exc.reason}")
+
+          if status != 201:
+              _debug(f"  Status: {status}")
+              _debug(f"  Body: {body}")
+              _error(f"Server did not respond with 201 Created but {status}")
+
+          if not public_url:
+              _error("Server did not provide a public URL in response")
+
+          _debug(f"  Public URL: {public_url}")
+          _info(f"Artifact download URL: {public_url}")
+
+          return public_url
+
+
+      def _write_desktop_file(filepath: str, public_url: str) -> None:
+          desktop_path = f"{filepath}.desktop"
+          content = f"[Desktop Entry]\nType=Link\nURL={public_url}"
+          with open(desktop_path, "w") as fh:
+              fh.write(content)
+          _debug(f"Created: {desktop_path}")
+
+
+      def _remove_file(filepath: str) -> None:
+          os.remove(filepath)
+          _debug(f"Removed: {filepath}")
+
+
+      def _main() -> None:
+          # --- Inputs ---
+          name = os.environ.get("FOREST_UPLOAD_NAME", "")
+          auth_token = os.environ.get("FOREST_UPLOAD_TOKEN", "")
+          search_path = os.environ.get("FOREST_UPLOAD_PATH", "")
+
+          if not name:
+              name = "artifact"
+
+          if not search_path:
+              _error("The 'path' input is required")
+
+          # --- Environment ---
+          api_url = os.getenv("FORREST_API_URL")
+          if not api_url:
+              _error("The FORREST_API_URL environment variable is not set")
+
+          token_file = os.getenv("FORREST_RUN_TOKEN_FILE")
+          if not token_file:
+              _error("The FORREST_RUN_TOKEN_FILE environment variable is not set")
+
+          with open(token_file) as fh:
+              run_token = fh.read().strip()
+
+          # --- Find files ---
+          files = _find_files(search_path)
+          root = _compute_root(search_path, files)
+
+          if not files:
+              _info("No files matched the search pattern")
+              with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
+                  fh.write("artifact-url=\n")
+              with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as fh:
+                  fh.write("## Uploaded Artifacts\n\nNo files were uploaded.\n")
+              sys.exit(0)
+
+          _debug(f"Found {len(files)} file(s) in {root}")
+
+          # --- Upload ---
+          authorization = f"Bearer {run_token}"
+          if auth_token:
+              authorization += f" {auth_token}"
+
+          public_base_url = None
+          rows = []
+
+          for filepath in files:
+              rel = os.path.relpath(filepath, root)
+              size = _human_size(Path(filepath).stat().st_size)
+              public_url = _upload_file(api_url, name, filepath, root, authorization)
+
+              if public_base_url is None:
+                  public_base_url = public_url[: len(public_url) - len(rel)]
+
+              _write_desktop_file(filepath, public_url)
+              _remove_file(filepath)
+
+              rows.append((rel, size, public_url))
+
+          # --- Output ---
+          with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
+              fh.write(f"artifact-url={public_base_url}\n")
+
+          _info(f"Artifact base URL: {public_base_url}")
+
+          # --- Summary ---
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as fh:
+              fh.write("## Uploaded Artifacts\n\n")
+              fh.write("| Artifact Path | Size | Public URL |\n")
+              fh.write("|---|---|---|\n")
+              for path, size, url in rows:
+                  fh.write(f"| {path} | {size} | [{url}]({url}) |\n")
+
+
+      if __name__ == "__main__":
+          _main()
+    shell: python3 {0}
+  using: composite

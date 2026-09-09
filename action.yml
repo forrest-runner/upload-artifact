@@ -32,9 +32,9 @@ runs:
       import glob
       import os
       import sys
+      import urllib.error
+      import urllib.request
       from pathlib import Path
-
-      import requests
 
 
       def _info(msg: str) -> None:
@@ -94,11 +94,11 @@ runs:
 
 
       def _upload_file(
-          session,
           api_url: str,
           name: str,
           filepath: str,
           root: str,
+          authorization: str,
       ) -> str:
           rel_path = os.path.relpath(filepath, root)
           dst_url = f"{api_url}/artifact/{name}/{rel_path}"
@@ -107,14 +107,32 @@ runs:
           _debug(f"  Destination: {dst_url}")
 
           with open(filepath, "rb") as fh:
-              resp = session.put(dst_url, data=fh)
+              req = urllib.request.Request(
+                  dst_url,
+                  data=fh,
+                  method="PUT",
+                  headers={
+                      "Authorization": authorization,
+                      "Content-type": "application/octet-stream",
+                      "Content-length": str(os.fstat(fh.fileno()).st_size),
+                  },
+              )
+              try:
+                  with urllib.request.urlopen(req) as resp:
+                      status = resp.status
+                      body = ""
+                      public_url = resp.headers.get("content-location")
+              except urllib.error.HTTPError as exc:
+                  body = exc.read().decode("utf-8", "replace")
+                  _debug(f"  Status: {exc.code} {exc.reason}")
+                  _debug(f"  Body: {body}")
+                  _error(f"Server did not respond with 201 Created but {exc.code} {exc.reason}")
 
-          if resp.status_code != 201:
-              _debug(f"  Status: {resp.status_code} {resp.reason}")
-              _debug(f"  Body: {resp.text}")
-              _error(f"Server did not respond with 201 Created but {resp.status_code} {resp.reason}")
+          if status != 201:
+              _debug(f"  Status: {status}")
+              _debug(f"  Body: {body}")
+              _error(f"Server did not respond with 201 Created but {status}")
 
-          public_url = resp.headers.get("content-location")
           if not public_url:
               _error("Server did not provide a public URL in response")
 
@@ -176,10 +194,9 @@ runs:
           _debug(f"Found {len(files)} file(s) in {root}")
 
           # --- Upload ---
-          session = requests.Session()
-          session.headers.update({"Authorization": f"Bearer {run_token}"})
+          authorization = f"Bearer {run_token}"
           if auth_token:
-              session.headers["Authorization"] += f" {auth_token}"
+              authorization += f" {auth_token}"
 
           public_base_url = None
           rows = []
@@ -187,7 +204,7 @@ runs:
           for filepath in files:
               rel = os.path.relpath(filepath, root)
               size = _human_size(Path(filepath).stat().st_size)
-              public_url = _upload_file(session, api_url, name, filepath, root)
+              public_url = _upload_file(api_url, name, filepath, root, authorization)
 
               if public_base_url is None:
                   public_base_url = public_url[: len(public_url) - len(rel)]
@@ -196,8 +213,6 @@ runs:
               _remove_file(filepath)
 
               rows.append((rel, size, public_url))
-
-          session.close()
 
           # --- Output ---
           with open(os.environ["GITHUB_OUTPUT"], "a") as fh:

@@ -45,12 +45,6 @@ jobs:
 | `name` | no | `artifact` | Upload destination as configured in the Forrest runner |
 | `token` | no | — | The token used to authenticate this upload |
 
-## Requirements
-
-This action is a composite action implemented in Python. It requires the
-`requests` library to be installed on the runner, which should already be
-present in most situations.
-
 [forrest_app]: https://github.com/forrest-runner/
 [dot_desktop_spec]:
   https://specifications.freedesktop.org/desktop-entry-spec/latest/

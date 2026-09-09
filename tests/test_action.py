@@ -1,7 +1,9 @@
+import io
 import os
 import tempfile
+import urllib.error
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -182,23 +184,31 @@ class TestRemoveFile:
 
 
 class TestUploadFile:
+    @staticmethod
+    def _mock_response(status: int, headers: dict):
+        resp = MagicMock()
+        resp.status = status
+        resp.headers = headers
+        resp.__enter__ = MagicMock(return_value=resp)
+        resp.__exit__ = MagicMock(return_value=False)
+        return resp
+
     def test_successful_upload(self):
         with tempfile.NamedTemporaryFile(mode="wb", delete=False) as f:
             f.write(b"hello")
             filepath = f.name
 
         try:
-            session = MagicMock()
-            mock_resp = MagicMock()
-            mock_resp.status_code = 201
-            mock_resp.headers = {"content-location": "http://example.com/file.bin"}
-            session.put.return_value = mock_resp
-
-            url = action._upload_file(session, "http://api", "my-artifact", filepath, "/tmp")
+            resp = self._mock_response(
+                201, {"content-location": "http://example.com/file.bin"}
+            )
+            with patch("urllib.request.urlopen", return_value=resp) as mock_urlopen:
+                url = action._upload_file("http://api", "my-artifact", filepath, "/tmp", "Bearer token")
             assert url == "http://example.com/file.bin"
-            call_args = session.put.call_args
-            assert call_args[0][0] == f"http://api/artifact/my-artifact/{os.path.basename(filepath)}"
-            assert call_args[1]["data"] is not None
+            req = mock_urlopen.call_args[0][0]
+            assert req.full_url == f"http://api/artifact/my-artifact/{os.path.basename(filepath)}"
+            assert req.get_method() == "PUT"
+            assert req.get_header("Authorization") == "Bearer token"
         finally:
             os.remove(filepath)
 
@@ -208,15 +218,16 @@ class TestUploadFile:
             filepath = f.name
 
         try:
-            session = MagicMock()
-            mock_resp = MagicMock()
-            mock_resp.status_code = 500
-            mock_resp.reason = "Internal Server Error"
-            mock_resp.text = "error"
-            session.put.return_value = mock_resp
-
-            with pytest.raises(SystemExit) as exc_info:
-                action._upload_file(session, "http://api", "my-artifact", filepath, "/tmp")
+            http_error = urllib.error.HTTPError(
+                "http://api/artifact/my-artifact/file.bin",
+                500,
+                "Internal Server Error",
+                {},
+                io.BytesIO(b"error"),
+            )
+            with patch("urllib.request.urlopen", side_effect=http_error):
+                with pytest.raises(SystemExit) as exc_info:
+                    action._upload_file("http://api", "my-artifact", filepath, "/tmp", "Bearer token")
             assert exc_info.value.code == 1
         finally:
             os.remove(filepath)
@@ -227,14 +238,10 @@ class TestUploadFile:
             filepath = f.name
 
         try:
-            session = MagicMock()
-            mock_resp = MagicMock()
-            mock_resp.status_code = 201
-            mock_resp.headers = {}
-            session.put.return_value = mock_resp
-
-            with pytest.raises(SystemExit) as exc_info:
-                action._upload_file(session, "http://api", "my-artifact", filepath, "/tmp")
+            resp = self._mock_response(201, {})
+            with patch("urllib.request.urlopen", return_value=resp):
+                with pytest.raises(SystemExit) as exc_info:
+                    action._upload_file("http://api", "my-artifact", filepath, "/tmp", "Bearer token")
             assert exc_info.value.code == 1
         finally:
             os.remove(filepath)
@@ -245,16 +252,13 @@ class TestUploadFile:
             filepath = f.name
 
         try:
-            session = MagicMock()
-            mock_resp = MagicMock()
-            mock_resp.status_code = 201
-            mock_resp.headers = {"content-location": "http://example.com/file.bin"}
-            session.put.return_value = mock_resp
-
-            action._upload_file(session, "http://api", "my-artifact", filepath, "/tmp")
-            call_args = session.put.call_args
-            url = call_args[0][0]
+            resp = self._mock_response(
+                201, {"content-location": "http://example.com/file.bin"}
+            )
+            with patch("urllib.request.urlopen", return_value=resp) as mock_urlopen:
+                action._upload_file("http://api", "my-artifact", filepath, "/tmp", "Bearer token")
+            req = mock_urlopen.call_args[0][0]
             # URL should use the relative path of the file under /tmp
-            assert os.path.basename(filepath) in url
+            assert os.path.basename(filepath) in req.full_url
         finally:
             os.remove(filepath)

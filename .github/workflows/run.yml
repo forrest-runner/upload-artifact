@@ -11,12 +11,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Generate dummy files
+        run: |
+          mkdir -p test-artifacts
+          for i in 1 2 3; do
+            echo "dummy file $i" > "test-artifacts/dummy-$i.txt"
+          done
+
       - name: Upload files and replace with .desktop
         uses: ./
         with:
-          path: src
+          path: test-artifacts
 
       - name: Upload .desktop files as GitHub artifact
         uses: actions/upload-artifact@v7
         with:
-          path: src
+          path: test-artifacts

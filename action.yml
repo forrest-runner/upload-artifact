@@ -16,12 +16,6 @@ inputs:
       'A file, directory or wildcard pattern that describes what to upload'
     required: true
 
-  include-hidden-files:
-    description: >
-      If true, hidden files will be included in the artifact. If false, hidden
-      files will be excluded from the artifact.
-    default: 'false'
-
   token:
     description: 'The token used to authenticate this upload'
     default: ''

@@ -13,12 +13,11 @@ export interface SearchResult {
   rootDirectory: string
 }
 
-function getDefaultGlobOptions(includeHiddenFiles: boolean): glob.GlobOptions {
+function getDefaultGlobOptions(): glob.GlobOptions {
   return {
     followSymbolicLinks: true,
     implicitDescendants: true,
-    omitBrokenSymbolicLinks: true,
-    excludeHiddenFiles: !includeHiddenFiles
+    omitBrokenSymbolicLinks: true
   }
 }
 
@@ -82,14 +81,10 @@ function getMultiPathLCA(searchPaths: string[]): string {
 }
 
 export async function findFilesToUpload(
-  searchPath: string,
-  includeHiddenFiles?: boolean
+  searchPath: string
 ): Promise<SearchResult> {
   const searchResults: string[] = []
-  const globber = await glob.create(
-    searchPath,
-    getDefaultGlobOptions(includeHiddenFiles || false)
-  )
+  const globber = await glob.create(searchPath, getDefaultGlobOptions())
   const rawSearchResults: string[] = await globber.glob()
 
   /*

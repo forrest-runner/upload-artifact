@@ -9,20 +9,17 @@ import { findFilesToUpload } from './search.js'
 interface UploadInputs {
   artifactName: string
   searchPath: string
-  includeHiddenFiles: boolean
   authToken: string
 }
 
 function getInputs(): UploadInputs {
   const name = core.getInput('name') || 'artifact'
   const path = core.getInput('path', { required: true })
-  const includeHiddenFiles = core.getBooleanInput('include-hidden-files')
   const authToken = core.getInput('token')
 
   return {
     artifactName: name,
     searchPath: path,
-    includeHiddenFiles: includeHiddenFiles,
     authToken: authToken
   }
 }
@@ -66,10 +63,7 @@ function getHumanReadableSize(bytes: number): string {
 
 export async function run(): Promise<void> {
   const inputs = getInputs()
-  const searchResult = await findFilesToUpload(
-    inputs.searchPath,
-    inputs.includeHiddenFiles
-  )
+  const searchResult = await findFilesToUpload(inputs.searchPath)
 
   const apiUrl = getApiUrl()
   const runToken = await getRunToken()
